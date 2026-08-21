@@ -7,21 +7,33 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 const GITHUB_USERNAME = process.env.GITHUB_USERNAME || 'rrlWakai'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6h — contribution data is not real-time
 
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:5173')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
+/* ── CORS ──
+   Localhost dev origins are always allowed; the deployed frontend origin is
+   provided via the FRONTEND_URL environment variable (set in Render's dashboard).
+   Trailing slashes are normalized so pasting "https://site.vercel.app/" still works. */
+const LOCAL_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+]
+
+const FRONTEND_URL = process.env.FRONTEND_URL?.trim().replace(/\/+$/, '')
+
+const ALLOWED_ORIGINS = new Set([...LOCAL_ORIGINS, ...(FRONTEND_URL ? [FRONTEND_URL] : [])])
 
 const app = express()
 
 app.use(
   cors({
+    // Credentials remain disabled — this API exchanges no cookies/browser auth.
     origin(origin, cb) {
-      // Allow same-origin/no-origin requests (curl, Render health checks) and configured origins
-      if (!origin || ALLOWED_ORIGINS.includes('*') || ALLOWED_ORIGINS.includes(origin)) {
+      // No Origin header → curl, Render health checks, same-origin/proxied calls
+      if (!origin || ALLOWED_ORIGINS.has(origin)) {
         return cb(null, true)
       }
-      cb(new Error('Not allowed by CORS'))
+      console.warn(`CORS blocked origin: ${origin}`)
+      return cb(new Error('Not allowed by CORS'))
     },
   }),
 )
@@ -167,6 +179,19 @@ app.get('/api/github-contributions', async (_req, res) => {
   }
 })
 
+/* ── Error handler — keeps every failure a JSON response ── */
+app.use((err, _req, res, _next) => {
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'Origin not allowed' })
+  }
+  console.error('[server]', err.message)
+  return res.status(500).json({ error: 'Internal server error' })
+})
+
 app.listen(PORT, () => {
   console.log(`GitHub activity API listening on port ${PORT} (user: ${GITHUB_USERNAME})`)
+  console.log(`CORS allowed origins: ${[...ALLOWED_ORIGINS].join(', ')}`)
+  if (!FRONTEND_URL) {
+    console.warn('FRONTEND_URL is not set — only localhost development origins are allowed')
+  }
 })
