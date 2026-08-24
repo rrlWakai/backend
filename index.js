@@ -34,7 +34,7 @@ app.use(
         return cb(null, true)
       }
       console.warn(`CORS blocked origin: ${origin}`)
-      return cb(new Error('Not allowed by CORS'))
+      return cb(new Error('Not allowed by CORSs'))
     },
   }),
 )
